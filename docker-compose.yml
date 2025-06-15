@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-server
+    ports:
+      - "8080:80"
+    volumes:
+      - nginx_logs:/var/log/nginx
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+    networks:
+      - log-network
+    # Override the default command to fix log files first then start nginx
+    command: >
+      sh -c "
+        echo 'Removing symlinks and creating real log files...' &&
+        rm -f /var/log/nginx/access.log /var/log/nginx/error.log &&
+        touch /var/log/nginx/access.log /var/log/nginx/error.log &&
+        chmod 644 /var/log/nginx/access.log /var/log/nginx/error.log &&
+        echo 'Log files created, starting nginx...' &&
+        nginx -g 'daemon off;'
+      "
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: logstash-processor
+    volumes:
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - nginx_logs:/var/log/nginx:ro
+      - ./processed-logs:/var/log/output
+    environment:
+      - LS_JAVA_OPTS=-Xmx512m -Xms512m
+    restart: unless-stopped
+    depends_on:
+      - nginx
+    networks:
+      - log-network
+
+volumes:
+  nginx_logs:
+
+networks:
+  log-network:
+    driver: bridge
